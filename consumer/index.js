@@ -22,18 +22,23 @@ async function connectCockroach() {
 
 // Conexão com RabbitMQ
 async function connectRabbit() {
-  connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://admin:admin@haproxy-rabbit:5672');
+  const connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://admin:admin@haproxy-rabbit:5672');
   channel = await connection.createChannel();
-  // Configurar prefetch_count para 5 mensagens
-  await channel.prefetch(5);
-  channel.on('error', (err) => {
-    if (err && err.code === 404) {
-      console.warn('Fila key-value-queue ainda não existe (evento error). A tentar novamente em 5 segundos...');
-      setTimeout(() => consumeMessages(globalPool), 5000);
-    } else {
-      console.error('Erro no canal RabbitMQ:', err);
-    }
-  });
+  
+  // Configurar prefetch_count para 10 mensagens
+  await channel.prefetch(10);
+  
+  // Só cria as filas se INIT_QUEUES=true
+  if (process.env.INIT_QUEUES === 'true') {
+    await channel.assertQueue('key-value-queue', {
+      durable: true,
+      arguments: {
+        'x-queue-type': 'quorum'
+      }
+    });
+    console.log('✅ Filas criadas com sucesso');
+  }
+  
   console.log('✅ Conectado ao RabbitMQ');
 }
 

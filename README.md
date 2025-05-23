@@ -38,12 +38,14 @@ O sistema é composto por:
 
 ### Testes Funcionais
 ```bash
-powershell -File test.ps1
+chmod +x test.sh
+./test.sh
 ```
 
 ### Testes de Carga
 ```bash
-powershell -File load_test.ps1
+chmod +x load_test.sh
+./load_test.sh
 ```
 
 ## 🔄 Alta Disponibilidade

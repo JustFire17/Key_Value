@@ -55,22 +55,31 @@ async function connectCockroach() {
 
 // Conexão com RabbitMQ
 let channel;
+let rabbitReady = false;
+
 async function connectRabbit() {
-  const connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://admin:admin@haproxy-rabbit:5672');
-  channel = await connection.createChannel();
-  
-  // Só cria as filas se INIT_QUEUES=true
-  if (process.env.INIT_QUEUES === 'true') {
-    await channel.assertQueue('key-value-queue', {
-      durable: true,
-      arguments: {
-        'x-queue-type': 'quorum'
-      }
-    });
-    console.log('✅ Filas criadas com sucesso');
+  try {
+    const connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://admin:admin@haproxy-rabbit:5672');
+    channel = await connection.createChannel();
+    
+    // Só cria as filas se INIT_QUEUES=true
+    if (process.env.INIT_QUEUES === 'true') {
+      await channel.assertQueue('key-value-queue', {
+        durable: true,
+        arguments: {
+          'x-queue-type': 'quorum'
+        }
+      });
+      console.log('✅ Filas criadas com sucesso');
+    }
+    
+    rabbitReady = true;
+    console.log('✅ Conectado ao RabbitMQ');
+  } catch (error) {
+    console.error('❌ Erro ao conectar ao RabbitMQ:', error);
+    rabbitReady = false;
+    throw error;
   }
-  
-  console.log('✅ Conectado ao RabbitMQ');
 }
 
 // Rota de health check para o HAProxy
@@ -178,6 +187,9 @@ router.put('/', async (req, res) => {
     return res.status(400).json({ error: 'Chave e valor são obrigatórios' });
   }
   try {
+    if (!rabbitReady) {
+      throw new Error('RabbitMQ não está pronto');
+    }
     await redisClient.set(key, value);
     await channel.sendToQueue('key-value-queue', Buffer.from(JSON.stringify({ key, value, timestamp: Date.now() })));
     return res.status(200).json({ message: 'Chave-valor inserido com sucesso' });
@@ -207,6 +219,9 @@ router.put('/', async (req, res) => {
 router.delete('/:key', async (req, res) => {
   const { key } = req.params;
   try {
+    if (!rabbitReady) {
+      throw new Error('RabbitMQ não está pronto');
+    }
     await redisClient.del(key);
     await channel.sendToQueue('key-value-queue', Buffer.from(JSON.stringify({ key, action: 'delete', timestamp: Date.now() })));
     return res.status(200).json({ message: 'Chave removida com sucesso' });
