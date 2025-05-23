@@ -24,6 +24,8 @@ async function connectCockroach() {
 async function connectRabbit() {
   connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://admin:admin@haproxy-rabbit:5672');
   channel = await connection.createChannel();
+  // Configurar prefetch_count para 5 mensagens
+  await channel.prefetch(5);
   channel.on('error', (err) => {
     if (err && err.code === 404) {
       console.warn('Fila key-value-queue ainda não existe (evento error). A tentar novamente em 5 segundos...');
