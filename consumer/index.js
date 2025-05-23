@@ -95,12 +95,15 @@ async function consumeMessages(pool) {
               dbTimestamp = parseInt(dbRes.rows[0].timestamp);
             }
             const msgTimestamp = data.timestamp ? parseInt(data.timestamp) : 0;
-            if (msgTimestamp < dbTimestamp) {
-              console.log(`Ignorado: mensagem com timestamp antigo para chave ${data.key}`);
+            
+            // Só ignorar se o timestamp for significativamente menor (mais de 1 segundo)
+            if (msgTimestamp < dbTimestamp - 1000) {
+              console.log(`Ignorado: mensagem com timestamp antigo para chave ${data.key} (DB: ${dbTimestamp}, MSG: ${msgTimestamp})`);
               channel.ack(msg);
               client.release();
               return;
             }
+            
             if (data.action === 'delete') {
               await client.query('DELETE FROM key_value WHERE key = $1', [data.key]);
               if (redisClient) await redisClient.del(data.key);
@@ -115,9 +118,11 @@ async function consumeMessages(pool) {
             }
           } catch (error) {
             console.error('Erro ao processar mensagem:', error);
+            // Não reconhecer a mensagem em caso de erro para tentar novamente
+            channel.nack(msg);
           } finally {
             client.release();
-            channel.ack(msg);
+            if (!error) channel.ack(msg);
           }
         }
       });

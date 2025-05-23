@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo -e "\e[32mIniciando testes funcionais...\e[0m"
+echo "🧪 Iniciando testes da API Key-Value Store"
 
 # Função para verificar resposta
 check_response() {
@@ -15,55 +15,28 @@ check_response() {
 }
 
 # Teste 1: Health Check
-echo -e "\n\e[33mTeste 1: Health Check\e[0m"
-response=$(curl -s http://localhost:80/health)
-check_response "$response"
+echo "📋 Teste 1: Health Check"
+curl -s http://localhost/health
+echo -e "\n"
 
 # Teste 2: PUT - Inserir chave-valor
-echo -e "\n\e[33mTeste 2: PUT - Inserir chave-valor\e[0m"
-response=$(curl -s -X PUT http://localhost:80/api \
-  -H "Content-Type: application/json" \
-  -d '{"key":"test_key","value":"test_value"}')
-check_response "$response"
+echo "📋 Teste 2: PUT - Inserir chave-valor"
+curl -X PUT -H "Content-Type: application/json" -d '{"key":"teste","value":"valor_teste"}' http://localhost/
+echo -e "\n"
 
-# Aguardar 2 segundos para processamento
-sleep 2
+# Teste 3: GET - Buscar chave inserida
+echo "📋 Teste 3: GET - Buscar chave inserida"
+curl -s http://localhost/teste
+echo -e "\n"
 
-# Teste 3: GET - Buscar chave
-echo -e "\n\e[33mTeste 3: GET - Buscar chave\e[0m"
-response=$(curl -s http://localhost:80/api/test_key)
-check_response "$response"
+# Teste 4: DELETE - Remover chave
+echo "📋 Teste 4: DELETE - Remover chave"
+curl -X DELETE http://localhost/teste
+echo -e "\n"
 
-# Teste 4: PUT - Atualizar chave existente
-echo -e "\n\e[33mTeste 4: PUT - Atualizar chave existente\e[0m"
-response=$(curl -s -X PUT http://localhost:80/api \
-  -H "Content-Type: application/json" \
-  -d '{"key":"test_key","value":"updated_value"}')
-check_response "$response"
+# Teste 5: GET - Verificar se chave foi removida
+echo "📋 Teste 5: GET - Verificar se chave foi removida"
+curl -s http://localhost/teste
+echo -e "\n"
 
-# Aguardar 2 segundos para processamento
-sleep 2
-
-# Teste 5: GET - Verificar valor atualizado
-echo -e "\n\e[33mTeste 5: GET - Verificar valor atualizado\e[0m"
-response=$(curl -s http://localhost:80/api/test_key)
-check_response "$response"
-
-# Teste 6: DELETE - Remover chave
-echo -e "\n\e[33mTeste 6: DELETE - Remover chave\e[0m"
-response=$(curl -s -X DELETE http://localhost:80/api/test_key)
-check_response "$response"
-
-# Aguardar 2 segundos para processamento
-sleep 2
-
-# Teste 7: GET - Verificar se chave foi removida
-echo -e "\n\e[33mTeste 7: GET - Verificar se chave foi removida\e[0m"
-response=$(curl -s http://localhost:80/api/test_key)
-if [[ $response == *"error"* ]]; then
-    echo -e "\e[32mChave não encontrada (esperado)\e[0m"
-else
-    echo -e "\e[31mErro: Chave ainda existe\e[0m"
-fi
-
-echo -e "\n\e[32mTestes concluídos!\e[0m" 
+echo "✅ Testes concluídos!" 

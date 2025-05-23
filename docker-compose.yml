@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   api1:
     build: ./api
@@ -7,6 +5,8 @@ services:
       - REDIS_URL=redis://haproxy-redis:6379
       - RABBITMQ_URL=amqp://admin:admin@haproxy-rabbit:5672
       - INIT_QUEUES=true
+    ports:
+      - "3003:3000"
     restart: unless-stopped
 
   api2:
@@ -14,6 +14,8 @@ services:
     environment:
       - REDIS_URL=redis://haproxy-redis:6379
       - RABBITMQ_URL=amqp://admin:admin@haproxy-rabbit:5672
+    ports:
+      - "3002:3000"
     restart: unless-stopped
 
   consumer:
@@ -87,7 +89,7 @@ services:
   haproxy-api:
     image: haproxy:2.9
     ports:
-      - "3001:3001"
+      - "3004:3001"
       - "8402:8402"
     volumes:
       - ./haproxy/haproxy-api.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro

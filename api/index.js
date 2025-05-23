@@ -59,22 +59,22 @@ let rabbitReady = false;
 
 async function connectRabbit() {
   try {
-    const connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://admin:admin@haproxy-rabbit:5672');
-    channel = await connection.createChannel();
-    
-    // Só cria as filas se INIT_QUEUES=true
-    if (process.env.INIT_QUEUES === 'true') {
-      await channel.assertQueue('key-value-queue', {
-        durable: true,
-        arguments: {
-          'x-queue-type': 'quorum'
-        }
-      });
-      console.log('✅ Filas criadas com sucesso');
-    }
-    
+  const connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://admin:admin@haproxy-rabbit:5672');
+  channel = await connection.createChannel();
+  
+  // Só cria as filas se INIT_QUEUES=true
+  if (process.env.INIT_QUEUES === 'true') {
+    await channel.assertQueue('key-value-queue', {
+      durable: true,
+      arguments: {
+        'x-queue-type': 'quorum'
+      }
+    });
+    console.log('✅ Filas criadas com sucesso');
+  }
+  
     rabbitReady = true;
-    console.log('✅ Conectado ao RabbitMQ');
+  console.log('✅ Conectado ao RabbitMQ');
   } catch (error) {
     console.error('❌ Erro ao conectar ao RabbitMQ:', error);
     rabbitReady = false;
@@ -190,8 +190,21 @@ router.put('/', async (req, res) => {
     if (!rabbitReady) {
       throw new Error('RabbitMQ não está pronto');
     }
+    if (!redisClient.isReady) {
+      throw new Error('Redis não está pronto');
+    }
+    
+    // Enviar mensagem para o RabbitMQ primeiro
+    await channel.sendToQueue('key-value-queue', Buffer.from(JSON.stringify({ 
+      key, 
+      value, 
+      timestamp: Date.now(),
+      action: 'put'
+    })));
+    
+    // Depois salvar no Redis
     await redisClient.set(key, value);
-    await channel.sendToQueue('key-value-queue', Buffer.from(JSON.stringify({ key, value, timestamp: Date.now() })));
+    
     return res.status(200).json({ message: 'Chave-valor inserido com sucesso' });
   } catch (error) {
     console.error('Erro ao inserir chave-valor:', error);
