@@ -1,94 +1,94 @@
-# Sistema Key-Value Distribuído
+# Key-Value Store Distribuído
 
-Este é um sistema distribuído de armazenamento key-value que utiliza múltiplos serviços para garantir alta disponibilidade e escalabilidade.
+Este projeto implementa um sistema de armazenamento chave-valor distribuído com alta disponibilidade e consistência eventual.
 
-## 🏗 Arquitetura
+## Visão Geral
 
-O sistema é composto pelos seguintes componentes:
+O sistema é composto por:
+- API REST em Node.js
+- Cache em Redis
+- Mensageria com RabbitMQ
+- Armazenamento persistente em CockroachDB
+- Consumer para processamento assíncrono
 
-- **APIs**: Duas instâncias da API para balanceamento de carga
-- **RabbitMQ**: Cluster de 3 nós para processamento assíncrono
-- **Redis**: Cache distribuído com replicação
-- **CockroachDB**: Banco de dados distribuído
-- **HAProxy**: Balanceamento de carga para todos os serviços
-- **Nginx**: Proxy reverso para as APIs
+## Documentação
 
-## 🚀 Como Executar
+A documentação completa do projeto está organizada nos seguintes arquivos:
 
-1. Certifique-se de ter o Docker e Docker Compose instalados
-2. Clone o repositório
-3. Execute:
-```bash
-docker-compose up -d
-```
+1. [Manual da API](API_MANUAL.md) - Documentação detalhada dos endpoints
+2. [Arquitetura](ARCHITECTURE.md) - Diagrama e descrição da arquitetura
+3. [Instalação](SETUP.md) - Guia de instalação e configuração
+4. [Scripts](SCRIPTS.md) - Documentação dos scripts de teste
 
-## 📊 Endpoints da API
+## Características Principais
 
-- `GET /`: Página inicial
-- `GET /health`: Status de saúde da API
-- `GET /api-docs`: Documentação Swagger
-- `GET /{key}`: Buscar valor por chave
-- `PUT /`: Inserir/atualizar chave-valor
-- `DELETE /{key}`: Remover chave
+- **Alta Disponibilidade**: Sistema distribuído com redundância
+- **Baixa Latência**: Cache em memória para operações rápidas
+- **Consistência Eventual**: Garantia de consistência entre Redis e CockroachDB
+- **Escalabilidade**: Componentes independentes e escaláveis
+- **Persistência**: Armazenamento duradouro dos dados
 
-## 🧪 Testes
+## Requisitos
 
-### Testes Funcionais
-Execute o script de testes básicos:
-```bash
-chmod +x test.sh
-./test.sh
-```
+- Node.js v18+
+- Docker e Docker Compose
+- npm
 
-### Testes de Carga
-Execute o script de testes de carga:
-```bash
-chmod +x load_test.sh
-./load_test.sh
-```
+## Início Rápido
 
-### Testes de Failover
-Execute o script de testes de failover:
-```bash
-chmod +x failover_test.sh
-./failover_test.sh
-```
+1. Clone o repositório
+2. Configure o arquivo `.env` com as seguintes variáveis:
+   ```env
+   PORT=3003
+   REDIS_HOST=localhost
+   REDIS_PORT=6379
+   RABBITMQ_URL=amqp://localhost
+   COCKROACH_HOST=localhost
+   COCKROACH_PORT=26257
+   COCKROACH_USER=root
+   COCKROACH_DATABASE=key_value
+   ```
+3. Execute `docker-compose up -d`
+4. Instale as dependências: `npm install`
+5. Inicie a API: `npm run start:api`
+6. Inicie o Consumer: `npm run start:consumer`
 
-### Testes de Consistência
-Execute o script de testes de consistência:
-```bash
-chmod +x consistency_test.sh
-./consistency_test.sh
-```
+## Testes
 
-## 🔍 Monitoramento
+O projeto inclui dois tipos de testes:
 
-- RabbitMQ: http://localhost:15673 (admin/admin)
-- CockroachDB: http://localhost:8081
-- HAProxy Stats:
-  - API: http://localhost:8402
-  - Redis: http://localhost:8403
-  - RabbitMQ: http://localhost:8404
-  - CockroachDB: http://localhost:8405
+1. **Testes de Consistência**
+   ```bash
+   ./consistency_test.sh
+   ```
+   - Testa operações de inserção, atualização e remoção
+   - Verifica consistência entre Redis e CockroachDB
+   - Gera relatório detalhado das operações
 
-## 🔄 Fluxo de Dados
+2. **Testes de Carga**
+   ```bash
+   ./load_test.sh
+   ```
+   - Usa Artillery para simular carga
+   - Testa operações PUT, GET e DELETE
+   - Gera métricas de performance
 
-1. Cliente faz requisição para a API
-2. API verifica cache no Redis
-3. Se não encontrar, busca no CockroachDB
-4. Operações de escrita são enviadas para o RabbitMQ
-5. Consumers processam as mensagens e atualizam Redis e CockroachDB
+## Monitoramento
 
-## 🛡 Alta Disponibilidade
+- API: `docker logs key_value-api-1`
+- Consumer: `docker logs key_value-consumer-1`
+- Redis: `docker logs key_value-redis-1`
+- RabbitMQ: `docker logs key_value-rabbitmq-1`
+- CockroachDB: `docker logs crdb1`
 
-- APIs: Balanceamento de carga via Nginx
-- RabbitMQ: Cluster de 3 nós
-- Redis: Replicação master-slave
-- CockroachDB: Cluster de 3 nós
+## Contribuição
 
-## 📝 Dependências
+1. Faça um fork do projeto
+2. Crie uma branch para sua feature
+3. Commit suas mudanças
+4. Push para a branch
+5. Abra um Pull Request
 
-- Node.js 18+
-- Docker
-- Docker Compose
-- Apache Bench (para testes de carga) 
+## Licença
+
+Este projeto está sob a licença MIT. 

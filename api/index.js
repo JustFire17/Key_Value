@@ -23,12 +23,43 @@ const swaggerOptions = {
         description: 'Servidor local',
       },
     ],
+    components: {
+      schemas: {
+        KeyValue: {
+          type: 'object',
+          properties: {
+            key: {
+              type: 'string',
+              description: 'Chave para armazenamento'
+            },
+            value: {
+              type: 'string',
+              description: 'Valor a ser armazenado'
+            }
+          },
+          required: ['key', 'value']
+        },
+        Error: {
+          type: 'object',
+          properties: {
+            error: {
+              type: 'string',
+              description: 'Mensagem de erro'
+            }
+          }
+        }
+      }
+    }
   },
   apis: ['./index.js'],
 };
 
 const swaggerDocs = swaggerJsdoc(swaggerOptions);
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs, {
+  explorer: true,
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: "API Key-Value Store - Documentação"
+}));
 
 // Conexão com Redis
 let redisClient;
@@ -110,15 +141,17 @@ const router = express.Router();
  * /api/{key}:
  *   get:
  *     summary: Busca um valor pela chave
+ *     description: Retorna o valor armazenado para uma chave específica
  *     parameters:
  *       - in: path
  *         name: key
  *         required: true
  *         schema:
  *           type: string
+ *         description: Chave a ser buscada
  *     responses:
  *       200:
- *         description: Valor encontrado
+ *         description: Valor encontrado com sucesso
  *         content:
  *           application/json:
  *             schema:
@@ -131,6 +164,16 @@ const router = express.Router();
  *                       type: string
  *       404:
  *         description: Chave não encontrada
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erro interno do servidor
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.get('/:key', async (req, res) => {
   const { key } = req.params;
@@ -161,25 +204,38 @@ router.get('/:key', async (req, res) => {
 
 /**
  * @swagger
- * /api/:
+ * /api:
  *   put:
  *     summary: Insere ou atualiza um par chave-valor
+ *     description: Armazena ou atualiza um valor para uma chave específica
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               key:
- *                 type: string
- *               value:
- *                 type: string
+ *             $ref: '#/components/schemas/KeyValue'
  *     responses:
  *       200:
- *         description: Chave-valor inserido com sucesso
+ *         description: Operação realizada com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
  *       400:
- *         description: Chave e valor são obrigatórios
+ *         description: Dados inválidos
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erro interno do servidor
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.put('/', async (req, res) => {
   const { key, value } = req.body;
@@ -213,18 +269,37 @@ router.put('/', async (req, res) => {
  * @swagger
  * /api/{key}:
  *   delete:
- *     summary: Remove uma chave
+ *     summary: Remove um par chave-valor
+ *     description: Remove uma chave e seu valor do sistema
  *     parameters:
  *       - in: path
  *         name: key
  *         required: true
  *         schema:
  *           type: string
+ *         description: Chave a ser removida
  *     responses:
  *       200:
  *         description: Chave removida com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
  *       404:
  *         description: Chave não encontrada
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Erro interno do servidor
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.delete('/:key', async (req, res) => {
   const { key } = req.params;
