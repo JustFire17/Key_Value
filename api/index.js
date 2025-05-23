@@ -30,28 +30,61 @@ const swaggerDocs = swaggerJsdoc(swaggerOptions);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 
 // Conexão com Redis
-const redisClient = Redis.createClient({
-  url: process.env.REDIS_URL || 'redis://redis:6379'
-});
+let redisClient;
+async function connectRedis() {
+  redisClient = Redis.createClient({
+    url: process.env.REDIS_URL || 'redis://redis:6379'
+  });
+  await redisClient.connect();
+  console.log('✅ Conectado ao Redis');
+}
 
 // Conexão com RabbitMQ
 let channel;
-async function connectRabbitMQ() {
-  const connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://rabbitmq:5672');
+async function connectRabbit() {
+  const connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://admin:admin@haproxy-rabbit:5672');
   channel = await connection.createChannel();
-  await channel.assertQueue('key-value-queue');
+  
+  // Só cria as filas se INIT_QUEUES=true
+  if (process.env.INIT_QUEUES === 'true') {
+    await channel.assertQueue('key-value-queue', {
+      durable: true,
+      arguments: {
+        'x-queue-type': 'quorum'
+      }
+    });
+    console.log('✅ Filas criadas com sucesso');
+  }
+  
+  console.log('✅ Conectado ao RabbitMQ');
 }
 
-// Inicialização
-(async () => {
-  await redisClient.connect();
-  await connectRabbitMQ();
-  console.log('API conectada ao Redis e RabbitMQ!');
-})();
+// Rota de health check para o HAProxy
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
+// Endpoint de debug para listar rotas registadas
+app.get('/debug-routes', (req, res) => {
+  const routes = [];
+  app._router.stack.forEach((middleware) => {
+    if (middleware.route) { // routes registered directly on the app
+      routes.push(middleware.route);
+    } else if (middleware.name === 'router') { // router middleware 
+      middleware.handle.stack.forEach((handler) => {
+        const route = handler.route;
+        route && routes.push(route);
+      });
+    }
+  });
+  res.json(routes.map(r => ({ path: r.path, methods: r.methods })));
+});
+
+const router = express.Router();
 
 /**
  * @swagger
- * /{key}:
+ * /api/{key}:
  *   get:
  *     summary: Busca um valor pela chave
  *     parameters:
@@ -76,7 +109,7 @@ async function connectRabbitMQ() {
  *       404:
  *         description: Chave não encontrada
  */
-app.get('/:key', async (req, res) => {
+router.get('/:key', async (req, res) => {
   const { key } = req.params;
   try {
     const value = await redisClient.get(key);
@@ -92,7 +125,7 @@ app.get('/:key', async (req, res) => {
 
 /**
  * @swagger
- * /:
+ * /api/:
  *   put:
  *     summary: Insere ou atualiza um par chave-valor
  *     requestBody:
@@ -102,21 +135,18 @@ app.get('/:key', async (req, res) => {
  *           schema:
  *             type: object
  *             properties:
- *               data:
- *                 type: object
- *                 properties:
- *                   key:
- *                     type: string
- *                   value:
- *                     type: string
+ *               key:
+ *                 type: string
+ *               value:
+ *                 type: string
  *     responses:
  *       200:
  *         description: Chave-valor inserido com sucesso
  *       400:
  *         description: Chave e valor são obrigatórios
  */
-app.put('/', async (req, res) => {
-  const { key, value } = req.body.data;
+router.put('/', async (req, res) => {
+  const { key, value } = req.body;
   if (!key || !value) {
     return res.status(400).json({ error: 'Chave e valor são obrigatórios' });
   }
@@ -132,7 +162,7 @@ app.put('/', async (req, res) => {
 
 /**
  * @swagger
- * /{key}:
+ * /api/{key}:
  *   delete:
  *     summary: Remove uma chave
  *     parameters:
@@ -147,7 +177,7 @@ app.put('/', async (req, res) => {
  *       404:
  *         description: Chave não encontrada
  */
-app.delete('/:key', async (req, res) => {
+router.delete('/:key', async (req, res) => {
   const { key } = req.params;
   try {
     await redisClient.del(key);
@@ -159,8 +189,24 @@ app.delete('/:key', async (req, res) => {
   }
 });
 
+// Rota de boas-vindas para o endpoint '/api/'
+router.get('/', (req, res) => {
+  res.send('API Key-Value Store em funcionamento! Visite /api-docs para a documentação Swagger.');
+});
+
+// Montar o router sob o prefixo /api
+console.log('A montar o router /api...');
+app.use('/api', router);
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`API rodando na porta ${PORT}`);
-  console.log(`Swagger UI disponível em http://localhost:80/api-docs`);
-}); 
+
+// Inicialização
+(async () => {
+  await connectRedis();
+  await connectRabbit();
+  console.log('API conectada ao Redis e RabbitMQ!');
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`API rodando na porta ${PORT}`);
+    console.log(`Swagger UI disponível em http://localhost:80/api-docs`);
+  });
+})(); 

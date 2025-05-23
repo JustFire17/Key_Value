@@ -5,6 +5,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-COPY . .
+# Instalar bash
+RUN apk add --no-cache bash
 
-CMD ["npm", "start"] 
+COPY . .
+COPY entrypoint.sh ./
+RUN chmod +x entrypoint.sh
+
+ENTRYPOINT ["/bin/sh", "./entrypoint.sh"] 

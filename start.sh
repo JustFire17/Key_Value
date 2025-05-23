@@ -24,10 +24,10 @@ docker-compose up -d --build
 if [ $? -eq 0 ]; then
     echo "✅ Sistema iniciado com sucesso!"
     echo "📝 Endpoints disponíveis:"
-    echo "   - API: http://localhost:80"
-    echo "   - Swagger UI: http://localhost:80/api-docs"
-    echo "   - RabbitMQ Management: http://localhost:15672 (guest/guest)"
-    echo "   - CockroachDB UI: http://localhost:8080"
+    echo "   - API: http://localhost:3001"
+    echo "   - Swagger UI: http://localhost:3001/api-docs"
+    echo "   - RabbitMQ Management: http://localhost:15673 (admin/admin)"
+    echo "   - CockroachDB UI: http://localhost:8081"
 else
     echo "❌ Erro ao iniciar o sistema. Verifica os logs com 'docker-compose logs'."
     exit 1
