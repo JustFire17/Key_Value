@@ -194,16 +194,27 @@ router.put('/', async (req, res) => {
       throw new Error('Redis não está pronto');
     }
     
-    // Enviar mensagem para o RabbitMQ primeiro
+    // Verificar se a chave existe no Redis ou CockroachDB
+    const existingValue = await redisClient.get(key);
+    if (!existingValue) {
+      const client = await pgPool.connect();
+      try {
+        const dbRes = await client.query('SELECT value FROM key_value WHERE key = $1', [key]);
+        if (dbRes.rows.length === 0) {
+          return res.status(404).json({ error: 'Chave não encontrada' });
+        }
+      } finally {
+        client.release();
+      }
+    }
+    
+    // Enviar mensagem para o RabbitMQ
     await channel.sendToQueue('key-value-queue', Buffer.from(JSON.stringify({ 
       key, 
       value, 
       timestamp: Date.now(),
       action: 'put'
     })));
-    
-    // Depois salvar no Redis
-    await redisClient.set(key, value);
     
     return res.status(200).json({ message: 'Chave-valor inserido com sucesso' });
   } catch (error) {
@@ -235,8 +246,28 @@ router.delete('/:key', async (req, res) => {
     if (!rabbitReady) {
       throw new Error('RabbitMQ não está pronto');
     }
-    await redisClient.del(key);
-    await channel.sendToQueue('key-value-queue', Buffer.from(JSON.stringify({ key, action: 'delete', timestamp: Date.now() })));
+    
+    // Verificar se a chave existe no Redis ou CockroachDB
+    const existingValue = await redisClient.get(key);
+    if (!existingValue) {
+      const client = await pgPool.connect();
+      try {
+        const dbRes = await client.query('SELECT value FROM key_value WHERE key = $1', [key]);
+        if (dbRes.rows.length === 0) {
+          return res.status(404).json({ error: 'Chave não encontrada' });
+        }
+      } finally {
+        client.release();
+      }
+    }
+    
+    // Enviar mensagem para o RabbitMQ
+    await channel.sendToQueue('key-value-queue', Buffer.from(JSON.stringify({ 
+      key, 
+      action: 'delete', 
+      timestamp: Date.now() 
+    })));
+    
     return res.status(200).json({ message: 'Chave removida com sucesso' });
   } catch (error) {
     console.error('Erro ao remover chave:', error);
@@ -252,6 +283,10 @@ router.get('/', (req, res) => {
 // Montar o router sob o prefixo /api
 console.log('A montar o router /api...');
 app.use('/api', router);
+
+// Montar o mesmo router na raiz
+console.log('A montar o router na raiz...');
+app.use('/', router);
 
 const PORT = process.env.PORT || 3000;
 
