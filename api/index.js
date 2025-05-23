@@ -3,6 +3,7 @@ const Redis = require('redis');
 const amqp = require('amqplib');
 const swaggerUi = require('swagger-ui-express');
 const swaggerJsdoc = require('swagger-jsdoc');
+const { Pool } = require('pg');
 
 const app = express();
 app.use(express.json());
@@ -37,6 +38,19 @@ async function connectRedis() {
   });
   await redisClient.connect();
   console.log('✅ Conectado ao Redis');
+}
+
+// Conexão com CockroachDB
+let pgPool;
+async function connectCockroach() {
+  pgPool = new Pool({
+    connectionString: process.env.COCKROACH_URL || 'postgresql://root@haproxy-crdb:26260/defaultdb?sslmode=disable'
+  });
+  // Testa a ligação
+  const client = await pgPool.connect();
+  await client.query('SELECT 1');
+  client.release();
+  console.log('✅ Conectado ao CockroachDB');
 }
 
 // Conexão com RabbitMQ
@@ -112,9 +126,22 @@ const router = express.Router();
 router.get('/:key', async (req, res) => {
   const { key } = req.params;
   try {
-    const value = await redisClient.get(key);
+    let value = await redisClient.get(key);
     if (value) {
       return res.json({ data: { value } });
+    }
+    // Cache miss: procurar na CockroachDB
+    const client = await pgPool.connect();
+    try {
+      const dbRes = await client.query('SELECT value FROM key_value WHERE key = $1', [key]);
+      if (dbRes.rows.length > 0) {
+        value = dbRes.rows[0].value;
+        // Repor no Redis
+        await redisClient.set(key, value);
+        return res.json({ data: { value } });
+      }
+    } finally {
+      client.release();
     }
     return res.status(404).json({ error: 'Chave não encontrada' });
   } catch (error) {
@@ -152,7 +179,7 @@ router.put('/', async (req, res) => {
   }
   try {
     await redisClient.set(key, value);
-    await channel.sendToQueue('key-value-queue', Buffer.from(JSON.stringify({ key, value })));
+    await channel.sendToQueue('key-value-queue', Buffer.from(JSON.stringify({ key, value, timestamp: Date.now() })));
     return res.status(200).json({ message: 'Chave-valor inserido com sucesso' });
   } catch (error) {
     console.error('Erro ao inserir chave-valor:', error);
@@ -181,7 +208,7 @@ router.delete('/:key', async (req, res) => {
   const { key } = req.params;
   try {
     await redisClient.del(key);
-    await channel.sendToQueue('key-value-queue', Buffer.from(JSON.stringify({ key, action: 'delete' })));
+    await channel.sendToQueue('key-value-queue', Buffer.from(JSON.stringify({ key, action: 'delete', timestamp: Date.now() })));
     return res.status(200).json({ message: 'Chave removida com sucesso' });
   } catch (error) {
     console.error('Erro ao remover chave:', error);
@@ -203,8 +230,9 @@ const PORT = process.env.PORT || 3000;
 // Inicialização
 (async () => {
   await connectRedis();
+  await connectCockroach();
   await connectRabbit();
-  console.log('API conectada ao Redis e RabbitMQ!');
+  console.log('API conectada ao Redis, CockroachDB e RabbitMQ!');
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`API rodando na porta ${PORT}`);
     console.log(`Swagger UI disponível em http://localhost:80/api-docs`);

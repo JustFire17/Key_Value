@@ -53,6 +53,7 @@ async function initTable(pool) {
       CREATE TABLE IF NOT EXISTS key_value (
         key TEXT PRIMARY KEY,
         value TEXT,
+        timestamp BIGINT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -80,17 +81,30 @@ async function consumeMessages(pool) {
           console.log('Mensagem recebida do RabbitMQ:', data);
           const client = await pool.connect();
           try {
+            // Buscar timestamp atual da chave na DB
+            let dbTimestamp = 0;
+            const dbRes = await client.query('SELECT timestamp FROM key_value WHERE key = $1', [data.key]);
+            if (dbRes.rows.length > 0 && dbRes.rows[0].timestamp) {
+              dbTimestamp = parseInt(dbRes.rows[0].timestamp);
+            }
+            const msgTimestamp = data.timestamp ? parseInt(data.timestamp) : 0;
+            if (msgTimestamp < dbTimestamp) {
+              console.log(`Ignorado: mensagem com timestamp antigo para chave ${data.key}`);
+              channel.ack(msg);
+              client.release();
+              return;
+            }
             if (data.action === 'delete') {
               await client.query('DELETE FROM key_value WHERE key = $1', [data.key]);
               if (redisClient) await redisClient.del(data.key);
               console.log(`Chave ${data.key} removida da base de dados e do Redis`);
             } else {
               await client.query(
-                'INSERT INTO key_value (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2',
-                [data.key, data.value]
+                'INSERT INTO key_value (key, value, timestamp) VALUES ($1, $2, $3) ON CONFLICT (key) DO UPDATE SET value = $2, timestamp = $3',
+                [data.key, data.value, msgTimestamp]
               );
               if (redisClient) await redisClient.set(data.key, data.value);
-              console.log(`Chave ${data.key} guardada na base de dados e no Redis`);
+              console.log(`Chave ${data.key} guardada na base de dados e no Redis (timestamp: ${msgTimestamp})`);
             }
           } catch (error) {
             console.error('Erro ao processar mensagem:', error);
