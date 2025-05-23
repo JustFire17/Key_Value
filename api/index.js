@@ -194,20 +194,6 @@ router.put('/', async (req, res) => {
       throw new Error('Redis não está pronto');
     }
     
-    // Verificar se a chave existe no Redis ou CockroachDB
-    const existingValue = await redisClient.get(key);
-    if (!existingValue) {
-      const client = await pgPool.connect();
-      try {
-        const dbRes = await client.query('SELECT value FROM key_value WHERE key = $1', [key]);
-        if (dbRes.rows.length === 0) {
-          return res.status(404).json({ error: 'Chave não encontrada' });
-        }
-      } finally {
-        client.release();
-      }
-    }
-    
     // Enviar mensagem para o RabbitMQ
     await channel.sendToQueue('key-value-queue', Buffer.from(JSON.stringify({ 
       key, 
@@ -246,6 +232,9 @@ router.delete('/:key', async (req, res) => {
     if (!rabbitReady) {
       throw new Error('RabbitMQ não está pronto');
     }
+    if (!redisClient.isReady) {
+      throw new Error('Redis não está pronto');
+    }
     
     // Verificar se a chave existe no Redis ou CockroachDB
     const existingValue = await redisClient.get(key);
@@ -254,6 +243,7 @@ router.delete('/:key', async (req, res) => {
       try {
         const dbRes = await client.query('SELECT value FROM key_value WHERE key = $1', [key]);
         if (dbRes.rows.length === 0) {
+          // Se a chave não existe, retornar 404 em vez de erro interno
           return res.status(404).json({ error: 'Chave não encontrada' });
         }
       } finally {
@@ -261,11 +251,12 @@ router.delete('/:key', async (req, res) => {
       }
     }
     
+    // Se chegou aqui, a chave existe e pode ser deletada
     // Enviar mensagem para o RabbitMQ
     await channel.sendToQueue('key-value-queue', Buffer.from(JSON.stringify({ 
       key, 
-      action: 'delete', 
-      timestamp: Date.now() 
+      timestamp: Date.now(),
+      action: 'delete'
     })));
     
     return res.status(200).json({ message: 'Chave removida com sucesso' });

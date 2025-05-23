@@ -8,6 +8,21 @@ let globalPool;
 let redisClient;
 let isReconnecting = false;
 let processedMessages = new Set();
+let deletedKeys = new Map(); // Mapa para rastrear chaves deletadas e seus timestamps
+const CLEANUP_INTERVAL = 3600000; // 1 hora em milissegundos
+
+// Função para limpar chaves deletadas antigas
+function cleanupDeletedKeys() {
+  const now = Date.now();
+  for (const [key, timestamp] of deletedKeys.entries()) {
+    if (now - timestamp > CLEANUP_INTERVAL) {
+      deletedKeys.delete(key);
+    }
+  }
+}
+
+// Iniciar limpeza periódica
+setInterval(cleanupDeletedKeys, CLEANUP_INTERVAL);
 
 // Conexão com CockroachDB
 async function connectCockroach() {
@@ -141,12 +156,20 @@ async function consumeMessages(pool) {
             // Processar DELETE
             if (data.action === 'delete') {
               try {
-                // Primeiro deletar do CockroachDB
-                const deleteResult = await client.query('DELETE FROM key_value WHERE key = $1 RETURNING *', [data.key]);
+                // Primeiro verificar se a chave existe
+                const checkResult = await client.query('SELECT * FROM key_value WHERE key = $1', [data.key]);
                 
-                // Se a chave existia no CockroachDB, deletar do Redis também
-                if (deleteResult.rows.length > 0) {
-                  if (redisClient) await redisClient.del(data.key);
+                if (checkResult.rows.length > 0) {
+                  // Se existe, deletar do CockroachDB
+                  await client.query('DELETE FROM key_value WHERE key = $1', [data.key]);
+                  
+                  // Deletar do Redis
+                  if (redisClient && redisClient.isReady) {
+                    await redisClient.del(data.key);
+                  }
+                  
+                  // Registrar a chave como deletada
+                  deletedKeys.set(data.key, msgTimestamp);
                   console.log(`Chave ${data.key} removida da base de dados e do Redis`);
                 } else {
                   console.log(`Chave ${data.key} não encontrada para remoção`);
@@ -156,13 +179,23 @@ async function consumeMessages(pool) {
                 channel.ack(msg);
               } catch (err) {
                 console.error('Erro ao processar DELETE:', err);
-                channel.nack(msg);
+                // Tentar novamente em caso de erro
+                channel.nack(msg, false, true);
               }
               return;
             }
 
             // Processar PUT
             try {
+              // Verificar se a chave foi deletada recentemente
+              const deletedTimestamp = deletedKeys.get(data.key);
+              if (deletedTimestamp && msgTimestamp < deletedTimestamp) {
+                console.log(`Ignorado: tentativa de PUT após DELETE para chave ${data.key} (DELETE: ${deletedTimestamp}, PUT: ${msgTimestamp})`);
+                processedMessages.add(messageId);
+                channel.ack(msg);
+                return;
+              }
+
               // Verificar timestamp apenas para PUT
               const existingValue = await client.query(
                 'SELECT timestamp FROM key_value WHERE key = $1',
@@ -183,6 +216,8 @@ async function consumeMessages(pool) {
               );
               
               if (redisClient) await redisClient.set(data.key, data.value);
+              // Remover a chave do mapa de chaves deletadas se existir
+              deletedKeys.delete(data.key);
               console.log(`Chave ${data.key} guardada na base de dados e no Redis (timestamp: ${msgTimestamp})`);
               
               processedMessages.add(messageId);

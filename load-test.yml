@@ -1,0 +1,55 @@
+config:
+  target: "http://localhost:3003"
+  phases:
+    - duration: 60
+      arrivalRate: 5
+      rampTo: 20
+      name: "Ramp up load"
+    - duration: 120
+      arrivalRate: 20
+      name: "Sustained load"
+  defaults:
+    headers:
+      Content-Type: "application/json"
+
+scenarios:
+  - name: "PUT operations"
+    flow:
+      - post:
+          url: "/api"
+          json:
+            key: "{{ $randomString() }}"
+            value: "{{ $randomString() }}"
+          expect:
+            - statusCode: 200
+            - hasProperty: "message"
+            - contains: "sucesso"
+
+  - name: "GET operations"
+    flow:
+      - post:
+          url: "/api"
+          json:
+            key: "test_key"
+            value: "test_value"
+      - get:
+          url: "/api/test_key"
+          expect:
+            - statusCode: 200
+            - hasProperty: "data"
+            - hasProperty: "data.value"
+            - equals: ["data.value", "test_value"]
+
+  - name: "DELETE operations"
+    flow:
+      - post:
+          url: "/api"
+          json:
+            key: "delete_key"
+            value: "delete_value"
+      - delete:
+          url: "/api/delete_key"
+          expect:
+            - statusCode: 200
+            - hasProperty: "message"
+            - contains: "sucesso" 
