@@ -1,5 +1,10 @@
 #!/bin/bash
 
-echo "🚀 Iniciando teste de carga..."
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+echo "Starting load test..."
 npx artillery run load-test.yml
-echo "✅ Teste de carga concluído!" 
+echo "Load test completed"

@@ -1,67 +1,75 @@
-# Documentação dos Scripts
+# Scripts and Test Utilities
 
-## Scripts de Teste
+This project includes a small set of useful, maintained scripts for validation and load testing. All scripts assume Docker services are running and the API/Consumer are started.
+
+## Scripts
 
 ### 1. consistency_test.sh
+Validates data consistency between Redis and CockroachDB.
 
-Este script testa a consistência entre Redis e CockroachDB.
+**What it does:**
+- Inserts and updates keys
+- Verifies Redis and CockroachDB values match
+- Retries to account for eventual consistency
 
-**Funcionalidades:**
-- Testa operações de inserção
-- Testa operações de atualização
-- Testa operações de múltiplas inserções
-- Verifica se os dados estão consistentes entre Redis e CockroachDB
-
-**Uso:**
+**Run:**
 ```bash
 ./consistency_test.sh
 ```
 
-**Saída:**
-- ✅ para testes bem-sucedidos
-- ❌ para inconsistências detectadas
-- Detalhes das operações e valores em cada banco de dados
+**Output:**
+- ✅ on successful checks
+- ❌ when inconsistencies are detected
+- Prints values from both Redis and CockroachDB
+
+---
 
 ### 2. load_test.sh
+Runs a load test with Artillery using `load-test.yml`.
 
-Este script executa testes de carga na API usando Artillery.
+**What it does:**
+- Simulates concurrent users
+- Measures response times and throughput
+- Verifies basic status codes
 
-**Funcionalidades:**
-- Testa a API sob carga
-- Simula múltiplos usuários
-- Mede tempos de resposta
-- Gera relatório de performance
-
-**Uso:**
+**Run:**
 ```bash
 ./load_test.sh
 ```
 
-**Configuração:**
-O teste é configurado no arquivo `load-test.yml` com:
-- Fase de aumento gradual (ramp up)
-- Fase de carga sustentada
-- Cenários de teste (PUT, GET, DELETE)
+**Notes:**
+- Uses `npx artillery`, so Node.js is required
+- Default target is `http://localhost:3003`
 
-**Saída:**
-- Métricas de performance
-- Taxa de requisições
-- Tempos de resposta
-- Códigos de status HTTP
-- Estatísticas de usuários virtuais
+---
 
-## Arquivos de Configuração
+### 3. failover_test.sh
+Checks API/Redis/RabbitMQ/CockroachDB health and simulates container failover.
+
+**What it does:**
+- Calls health/status endpoints
+- Stops and restarts containers to test resilience
+
+**Run (use with caution):**
+```bash
+./failover_test.sh
+```
+
+**Note:** API containers have a built-in startup delay (~60s). During failover, `API1 health: HTTP 000` can appear briefly until the API finishes its startup.
+
+---
+
+## Configuration Files
 
 ### load-test.yml
+Artillery config for load testing.
 
-Arquivo de configuração do Artillery que define:
-- Target: URL da API
-- Phases: Fases do teste de carga
-- Scenarios: Cenários de teste
-- Headers: Configurações de cabeçalho
-- Expect: Validações de resposta
+**Key fields:**
+- `config.target`: API base URL
+- `phases`: ramp-up + sustained load
+- `scenarios`: PUT, GET, DELETE flows
 
-**Estrutura:**
+**Example:**
 ```yaml
 config:
   target: "http://localhost:3003"
@@ -76,19 +84,16 @@ config:
       Content-Type: "application/json"
 ```
 
-## Notas Importantes
+---
 
-1. **Pré-requisitos:**
-   - Docker e containers rodando
-   - API e Consumer em execução
-   - Node.js e npm instalados
+## Requirements
 
-2. **Ordem de Execução:**
-   - Primeiro execute os testes de consistência
-   - Depois execute os testes de carga
-   - Verifique os logs para detalhes
+- Docker services running (`docker compose up -d`)
+- API + Consumer running
+- Node.js and npm installed
 
-3. **Interpretação dos Resultados:**
-   - Consistência: Verifique se Redis e CockroachDB têm os mesmos valores
-   - Carga: Analise os tempos de resposta e taxas de erro
-   - Performance: Compare com os requisitos do sistema 
+## Recommended Order
+
+1. Run `./consistency_test.sh`
+2. Run `./load_test.sh`
+3. (Optional) Run `./failover_test.sh`

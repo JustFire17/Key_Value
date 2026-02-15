@@ -8,19 +8,19 @@ const { Pool } = require('pg');
 const app = express();
 app.use(express.json());
 
-// Configuração do Swagger
+// Swagger configuration
 const swaggerOptions = {
   definition: {
     openapi: '3.0.0',
     info: {
       title: 'API Key-Value Store',
       version: '1.0.0',
-      description: 'API REST para sistema distribuído de armazenamento key-value',
+      description: 'REST API for a distributed key-value store',
     },
     servers: [
       {
         url: 'http://localhost:80',
-        description: 'Servidor local',
+        description: 'Local server',
       },
     ],
     components: {
@@ -30,11 +30,11 @@ const swaggerOptions = {
           properties: {
             key: {
               type: 'string',
-              description: 'Chave para armazenamento'
+              description: 'Key to store'
             },
             value: {
               type: 'string',
-              description: 'Valor a ser armazenado'
+              description: 'Value to store'
             }
           },
           required: ['key', 'value']
@@ -44,7 +44,7 @@ const swaggerOptions = {
           properties: {
             error: {
               type: 'string',
-              description: 'Mensagem de erro'
+              description: 'Error message'
             }
           }
         }
@@ -58,33 +58,33 @@ const swaggerDocs = swaggerJsdoc(swaggerOptions);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs, {
   explorer: true,
   customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: "API Key-Value Store - Documentação"
+  customSiteTitle: 'API Key-Value Store - Documentation'
 }));
 
-// Conexão com Redis
+// Connect to Redis
 let redisClient;
 async function connectRedis() {
   redisClient = Redis.createClient({
     url: process.env.REDIS_URL || 'redis://redis:6379'
   });
   await redisClient.connect();
-  console.log('✅ Conectado ao Redis');
+  console.log('[OK] Connected to Redis');
 }
 
-// Conexão com CockroachDB
+// Connect to CockroachDB
 let pgPool;
 async function connectCockroach() {
   pgPool = new Pool({
     connectionString: process.env.COCKROACH_URL || 'postgresql://root@haproxy-crdb:26260/defaultdb?sslmode=disable'
   });
-  // Testa a ligação
+  // Test connection
   const client = await pgPool.connect();
   await client.query('SELECT 1');
   client.release();
-  console.log('✅ Conectado ao CockroachDB');
+  console.log('[OK] Connected to CockroachDB');
 }
 
-// Conexão com RabbitMQ
+// Connect to RabbitMQ
 let channel;
 let rabbitReady = false;
 
@@ -93,7 +93,7 @@ async function connectRabbit() {
   const connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://admin:admin@haproxy-rabbit:5672');
   channel = await connection.createChannel();
   
-  // Só cria as filas se INIT_QUEUES=true
+  // Only create queues when INIT_QUEUES=true
   if (process.env.INIT_QUEUES === 'true') {
     await channel.assertQueue('key-value-queue', {
       durable: true,
@@ -101,24 +101,24 @@ async function connectRabbit() {
         'x-queue-type': 'quorum'
       }
     });
-    console.log('✅ Filas criadas com sucesso');
+    console.log('[OK] Queues created');
   }
   
     rabbitReady = true;
-  console.log('✅ Conectado ao RabbitMQ');
+  console.log('[OK] Connected to RabbitMQ');
   } catch (error) {
-    console.error('❌ Erro ao conectar ao RabbitMQ:', error);
+    console.error('[ERROR] RabbitMQ connection failed:', error);
     rabbitReady = false;
     throw error;
   }
 }
 
-// Rota de health check para o HAProxy
+// Health check route for HAProxy
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
 
-// Endpoint de debug para listar rotas registadas
+// Debug endpoint to list registered routes
 app.get('/debug-routes', (req, res) => {
   const routes = [];
   app._router.stack.forEach((middleware) => {
@@ -140,18 +140,18 @@ const router = express.Router();
  * @swagger
  * /api/{key}:
  *   get:
- *     summary: Busca um valor pela chave
- *     description: Retorna o valor armazenado para uma chave específica
+ *     summary: Retrieve a value by key
+ *     description: Returns the stored value for a specific key
  *     parameters:
  *       - in: path
  *         name: key
  *         required: true
  *         schema:
  *           type: string
- *         description: Chave a ser buscada
+ *         description: Key to retrieve
  *     responses:
  *       200:
- *         description: Valor encontrado com sucesso
+ *         description: Value found successfully
  *         content:
  *           application/json:
  *             schema:
@@ -163,13 +163,13 @@ const router = express.Router();
  *                     value:
  *                       type: string
  *       404:
- *         description: Chave não encontrada
+ *         description: Key not found
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       500:
- *         description: Erro interno do servidor
+ *         description: Internal server error
  *         content:
  *           application/json:
  *             schema:
@@ -182,13 +182,13 @@ router.get('/:key', async (req, res) => {
     if (value) {
       return res.json({ data: { value } });
     }
-    // Cache miss: procurar na CockroachDB
+    // Cache miss: check CockroachDB
     const client = await pgPool.connect();
     try {
       const dbRes = await client.query('SELECT value FROM key_value WHERE key = $1', [key]);
       if (dbRes.rows.length > 0) {
         value = dbRes.rows[0].value;
-        // Repor no Redis
+        // Restore in Redis
         await redisClient.set(key, value);
         return res.json({ data: { value } });
       }
@@ -197,7 +197,7 @@ router.get('/:key', async (req, res) => {
     }
     return res.status(404).json({ error: 'Chave não encontrada' });
   } catch (error) {
-    console.error('Erro ao buscar chave:', error);
+    console.error('[ERROR] Failed to fetch key:', error);
     return res.status(500).json({ error: 'Erro interno' });
   }
 });
@@ -206,8 +206,8 @@ router.get('/:key', async (req, res) => {
  * @swagger
  * /api:
  *   put:
- *     summary: Insere ou atualiza um par chave-valor
- *     description: Armazena ou atualiza um valor para uma chave específica
+ *     summary: Insert or update a key-value pair
+ *     description: Stores or updates a value for a specific key
  *     requestBody:
  *       required: true
  *       content:
@@ -216,7 +216,7 @@ router.get('/:key', async (req, res) => {
  *             $ref: '#/components/schemas/KeyValue'
  *     responses:
  *       200:
- *         description: Operação realizada com sucesso
+ *         description: Operation completed successfully
  *         content:
  *           application/json:
  *             schema:
@@ -225,13 +225,13 @@ router.get('/:key', async (req, res) => {
  *                 message:
  *                   type: string
  *       400:
- *         description: Dados inválidos
+ *         description: Invalid payload
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       500:
- *         description: Erro interno do servidor
+ *         description: Internal server error
  *         content:
  *           application/json:
  *             schema:
@@ -250,7 +250,7 @@ router.put('/', async (req, res) => {
       throw new Error('Redis não está pronto');
     }
     
-    // Enviar mensagem para o RabbitMQ
+    // Send message to RabbitMQ
     await channel.sendToQueue('key-value-queue', Buffer.from(JSON.stringify({ 
       key, 
       value, 

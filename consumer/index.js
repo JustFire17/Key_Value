@@ -8,10 +8,10 @@ let globalPool;
 let redisClient;
 let isReconnecting = false;
 let processedMessages = new Set();
-let deletedKeys = new Map(); // Mapa para rastrear chaves deletadas e seus timestamps
+let deletedKeys = new Map(); // Tracks deleted keys and timestamps
 const CLEANUP_INTERVAL = 3600000; // 1 hora em milissegundos
 
-// Função para limpar chaves deletadas antigas
+// Remove old deleted keys from the tracking map
 function cleanupDeletedKeys() {
   const now = Date.now();
   for (const [key, timestamp] of deletedKeys.entries()) {
@@ -21,23 +21,23 @@ function cleanupDeletedKeys() {
   }
 }
 
-// Iniciar limpeza periódica
+// Start periodic cleanup
 setInterval(cleanupDeletedKeys, CLEANUP_INTERVAL);
 
-// Conexão com CockroachDB
+// Connect to CockroachDB
 async function connectCockroach() {
   const pool = new Pool({
     connectionString: process.env.COCKROACH_URL || 'postgresql://root@cockroachdb:26257/defaultdb?sslmode=disable'
   });
-  // Testa a ligação
+  // Test connection
   const client = await pool.connect();
   await client.query('SELECT 1');
   client.release();
-  console.log('✅ Conectado ao CockroachDB');
+  console.log('[OK] Connected to CockroachDB');
   return pool;
 }
 
-// Conexão com RabbitMQ
+// Connect to RabbitMQ
 async function connectRabbit() {
   try {
     if (connection) {
@@ -46,18 +46,18 @@ async function connectRabbit() {
     connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://admin:admin@haproxy-rabbit:5672');
     channel = await connection.createChannel();
     
-    // Configurar handlers de erro
+    // Error handlers
     connection.on('error', async (err) => {
-      console.error('Erro na conexão RabbitMQ:', err);
+      console.error('[ERROR] RabbitMQ connection error:', err);
       if (!isReconnecting) {
         isReconnecting = true;
-        processedMessages.clear(); // Limpar mensagens processadas ao reconectar
+        processedMessages.clear(); // Clear processed messages on reconnect
         setTimeout(async () => {
           try {
             await connectRabbit();
             await consumeMessages(globalPool);
           } catch (error) {
-            console.error('Erro ao reconectar:', error);
+            console.error('[ERROR] Reconnect failed:', error);
           } finally {
             isReconnecting = false;
           }
@@ -66,16 +66,16 @@ async function connectRabbit() {
     });
 
     channel.on('error', async (err) => {
-      console.error('Erro no canal RabbitMQ:', err);
+      console.error('[ERROR] RabbitMQ channel error:', err);
       if (!isReconnecting) {
         isReconnecting = true;
-        processedMessages.clear(); // Limpar mensagens processadas ao reconectar
+        processedMessages.clear(); // Clear processed messages on reconnect
         setTimeout(async () => {
           try {
             await connectRabbit();
             await consumeMessages(globalPool);
           } catch (error) {
-            console.error('Erro ao reconectar:', error);
+            console.error('[ERROR] Reconnect failed:', error);
           } finally {
             isReconnecting = false;
           }
@@ -89,24 +89,24 @@ async function connectRabbit() {
         'x-queue-type': 'quorum'
       }
     });
-    console.log('✅ Conectado ao RabbitMQ');
+    console.log('[OK] Connected to RabbitMQ');
     return channel;
   } catch (error) {
-    console.error('❌ Erro ao conectar ao RabbitMQ:', error);
+    console.error('[ERROR] RabbitMQ connection failed:', error);
     throw error;
   }
 }
 
-// Conexão com Redis
+// Connect to Redis
 async function connectRedis() {
   redisClient = redis.createClient({
     url: process.env.REDIS_URL || 'redis://haproxy-redis:6379'
   });
   await redisClient.connect();
-  console.log('✅ Conectado ao Redis');
+  console.log('[OK] Connected to Redis');
 }
 
-// Inicialização da tabela
+// Initialize table
 async function initTable(pool) {
   const client = await pool.connect();
   try {
@@ -118,17 +118,17 @@ async function initTable(pool) {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    console.log('Tabela key_value criada ou já existente');
+    console.log('Table key_value created or already exists');
   } catch (error) {
-    console.error('Erro ao criar tabela:', error);
+    console.error('[ERROR] Failed to create table:', error);
   } finally {
     client.release();
   }
 }
 
-// Consumidor de mensagens com retry e canal novo
+// Message consumer with retry and channel recovery
 async function consumeMessages(pool) {
-  console.log('Consumer aguardando mensagens...');
+  console.log('Consumer waiting for messages...');
   const tryConsume = async () => {
     try {
       if (!channel) {
@@ -143,92 +143,92 @@ async function consumeMessages(pool) {
             const data = JSON.parse(msg.content.toString());
             const messageId = `${data.key}-${data.timestamp}`;
             
-            // Verificar se a mensagem já foi processada
+            // Check if message was already processed
             if (processedMessages.has(messageId)) {
-              console.log(`Mensagem já processada: ${messageId}`);
+              console.log(`Message already processed: ${messageId}`);
               channel.ack(msg);
               return;
             }
 
-            console.log('Mensagem recebida do RabbitMQ:', data);
+            console.log('Message received from RabbitMQ:', data);
             const msgTimestamp = data.timestamp || Date.now();
 
-            // Processar DELETE
+            // Process DELETE
             if (data.action === 'delete') {
               try {
-                // Primeiro verificar se a chave existe
+                // Check if the key exists
                 const checkResult = await client.query('SELECT * FROM key_value WHERE key = $1', [data.key]);
                 
                 if (checkResult.rows.length > 0) {
-                  // Se existe, deletar do CockroachDB
+                  // Delete from CockroachDB
                   await client.query('DELETE FROM key_value WHERE key = $1', [data.key]);
                   
-                  // Deletar do Redis
+                  // Delete from Redis
                   if (redisClient && redisClient.isReady) {
                     await redisClient.del(data.key);
                   }
                   
-                  // Registrar a chave como deletada
+                  // Record key as deleted
                   deletedKeys.set(data.key, msgTimestamp);
-                  console.log(`Chave ${data.key} removida da base de dados e do Redis`);
+                  console.log(`Key ${data.key} removed from database and Redis`);
                 } else {
-                  console.log(`Chave ${data.key} não encontrada para remoção`);
+                  console.log(`Key ${data.key} not found for removal`);
                 }
                 
                 processedMessages.add(messageId);
                 channel.ack(msg);
               } catch (err) {
-                console.error('Erro ao processar DELETE:', err);
-                // Tentar novamente em caso de erro
+                console.error('[ERROR] Failed to process DELETE:', err);
+                // Retry on error
                 channel.nack(msg, false, true);
               }
               return;
             }
 
-            // Processar PUT
+            // Process PUT
             try {
-              // Verificar se a chave foi deletada recentemente
+              // Check if key was deleted recently
               const deletedTimestamp = deletedKeys.get(data.key);
               if (deletedTimestamp && msgTimestamp < deletedTimestamp) {
-                console.log(`Ignorado: tentativa de PUT após DELETE para chave ${data.key} (DELETE: ${deletedTimestamp}, PUT: ${msgTimestamp})`);
+                console.log(`Ignored: PUT after DELETE for key ${data.key} (DELETE: ${deletedTimestamp}, PUT: ${msgTimestamp})`);
                 processedMessages.add(messageId);
                 channel.ack(msg);
                 return;
               }
 
-              // Verificar timestamp apenas para PUT
+              // Compare timestamps for PUT
               const existingValue = await client.query(
                 'SELECT timestamp FROM key_value WHERE key = $1',
                 [data.key]
               );
 
               if (existingValue.rows.length > 0 && existingValue.rows[0].timestamp > msgTimestamp) {
-                console.log(`Ignorado: mensagem com timestamp antigo para chave ${data.key} (DB: ${existingValue.rows[0].timestamp}, MSG: ${msgTimestamp})`);
+                console.log(`Ignored: older message timestamp for key ${data.key} (DB: ${existingValue.rows[0].timestamp}, MSG: ${msgTimestamp})`);
                 processedMessages.add(messageId);
                 channel.ack(msg);
                 return;
               }
 
-              // Executar PUT
+              // Execute PUT
               await client.query(
                 'INSERT INTO key_value (key, value, timestamp) VALUES ($1, $2, $3) ON CONFLICT (key) DO UPDATE SET value = $2, timestamp = $3',
                 [data.key, data.value, msgTimestamp]
               );
               
               if (redisClient) await redisClient.set(data.key, data.value);
-              // Remover a chave do mapa de chaves deletadas se existir
+              // Remove key from deleted map, if present
               deletedKeys.delete(data.key);
-              console.log(`Chave ${data.key} guardada na base de dados e no Redis (timestamp: ${msgTimestamp})`);
+              console.log(`Key ${data.key} stored in database and Redis (timestamp: ${msgTimestamp})`);
               
               processedMessages.add(messageId);
               channel.ack(msg);
             } catch (err) {
-              console.error('Erro ao processar PUT:', err);
+              console.error('[ERROR] Failed to process PUT:', err);
               channel.nack(msg);
             }
           } catch (err) {
             error = err;
-            console.error('Erro ao processar mensagem:', err);
+            console.error('[ERROR] Failed to process message:', err);
             channel.nack(msg);
           } finally {
             client.release();
@@ -236,16 +236,16 @@ async function consumeMessages(pool) {
         }
       });
     } catch (err) {
-      console.error('Erro ao consumir mensagens:', err);
+      console.error('[ERROR] Message consume failed:', err);
       if (!isReconnecting) {
         isReconnecting = true;
-        processedMessages.clear(); // Limpar mensagens processadas ao reconectar
+        processedMessages.clear(); // Clear processed messages on reconnect
         setTimeout(async () => {
           try {
             await connectRabbit();
             await consumeMessages(pool);
           } catch (error) {
-            console.error('Erro ao reconectar:', error);
+            console.error('[ERROR] Reconnect failed:', error);
           } finally {
             isReconnecting = false;
           }

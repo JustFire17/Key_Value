@@ -1,16 +1,21 @@
 #!/bin/bash
 
-echo "🔍 Iniciando testes de consistência..."
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+echo "Starting consistency tests..."
 
 # Verificar se os containers estão rodando
-echo "Verificando status dos containers..."
+echo "Checking container status..."
 if ! docker ps | grep -q "crdb1"; then
-    echo "❌ Container CockroachDB não está rodando!"
+    echo "CockroachDB container is not running!"
     exit 1
 fi
 
 if ! docker ps | grep -q "key_value-redis1-1"; then
-    echo "❌ Container Redis não está rodando!"
+    echo "Redis container is not running!"
     exit 1
 fi
 
@@ -20,10 +25,10 @@ check_operation() {
     if [[ $response == *"sucesso"* ]]; then
         return 0
     elif [[ $response == *"Chave não encontrada"* ]]; then
-        echo "ℹ️ Chave não existe"
+        echo "Info: key does not exist"
         return 0
     else
-        echo "❌ Operação falhou: $response"
+        echo "Operation failed: $response"
         return 1
     fi
 }
@@ -47,14 +52,14 @@ insert_value() {
     local retry_count=0
     
     while [ $retry_count -lt $max_retries ]; do
-        echo "Inserindo $key=$value... (Tentativa $((retry_count + 1)))"
+        echo "Inserting $key=$value... (Attempt $((retry_count + 1)))"
         response=$(curl -s -X PUT http://localhost:3003/api/ \
             -H "Content-Type: application/json" \
             -d "{\"key\":\"$key\",\"value\":\"$value\"}")
         
         if check_operation "$response"; then
-            echo "✅ Inserção bem sucedida"
-            sleep 8  # Aumentado tempo de espera para sincronização
+            echo "Insert succeeded"
+            sleep 2
             return 0
         fi
         
@@ -62,7 +67,7 @@ insert_value() {
         sleep 2
     done
     
-    echo "❌ Falha na inserção após $max_retries tentativas"
+    echo "Insert failed after $max_retries attempts"
     return 1
 }
 
@@ -82,16 +87,16 @@ check_consistency() {
         echo "CockroachDB[$key]: $crdb_value"
         
         if [ "$redis_value" = "$expected_value" ] && [ "$crdb_value" = "$expected_value" ]; then
-            echo "✅ Consistência verificada para $key"
+            echo "Consistency verified for $key"
             return 0
         fi
         
-        echo "❌ Inconsistência detectada para $key (Tentativa $((retry_count + 1)))"
-        echo "Esperado: $expected_value"
+        echo "Inconsistency detected for $key (Attempt $((retry_count + 1)))"
+        echo "Expected: $expected_value"
         
         retry_count=$((retry_count + 1))
         if [ $retry_count -lt $max_retries ]; then
-            echo "Aguardando sincronização..."
+            echo "Waiting for synchronization..."
             sleep 5
         fi
     done
@@ -100,25 +105,25 @@ check_consistency() {
 }
 
 # Teste 1: Inserção e verificação
-echo -e "\n📝 Teste 1: Inserção e verificação"
+echo -e "\nTest 1: Insert and verify"
 insert_value "test_key" "test_value"
-echo "Verificando consistência após inserção..."
+echo "Checking consistency after insert..."
 check_consistency "test_key" "test_value"
 
-# Teste 2: Atualização e verificação
-echo -e "\n📝 Teste 2: Atualização e verificação"
+# Test 2: Update and verify
+echo -e "\nTest 2: Update and verify"
 insert_value "test_key" "new_value"
-echo "Verificando consistência após atualização..."
+echo "Checking consistency after update..."
 check_consistency "test_key" "new_value"
 
-# Teste 3: Múltiplas operações
-echo -e "\n📝 Teste 3: Múltiplas operações"
+# Test 3: Multiple operations
+echo -e "\nTest 3: Multiple operations"
 for i in {1..5}; do
     insert_value "key$i" "value$i"
 done
-echo "Verificando consistência após múltiplas inserções..."
+echo "Checking consistency after multiple inserts..."
 for i in {1..5}; do
     check_consistency "key$i" "value$i"
 done
 
-echo -e "\n✅ Testes de consistência concluídos!" 
+echo -e "\nConsistency tests completed"
