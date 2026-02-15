@@ -96,7 +96,6 @@ curl -X DELETE http://localhost:3003/api/key1
 - [**API Manual**](API_MANUAL.md) — Endpoints and examples
 - [**Architecture**](ARCHITECTURE.md) — Diagram and components
 - [**Scripts**](SCRIPTS.md) — Testing and monitoring
-- [**Contributing**](CONTRIBUTING.md) — How to contribute
 
 ## 🧪 Testing
 
@@ -169,10 +168,6 @@ Common causes: ports already in use, Docker daemon not running, low disk space.
 docker compose down          # Stop containers but keep volumes
 docker compose down -v       # Stop containers and remove volumes
 ```
-
-## 🤝 Contributing
-
-Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## 📄 License
 
